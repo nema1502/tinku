@@ -1,0 +1,39 @@
+# Local stack that mirrors production: the service plus a real Postgres, so the
+# storage path exercised on a laptop is the same one that runs on AWS.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: tinku
+      POSTGRES_PASSWORD: tinku
+      POSTGRES_DB: tinku
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tinku"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 8402
+      DATABASE_URL: postgres://tinku:tinku@db:5432/tinku
+      DATABASE_SSL: "false"
+      ALGORAND_NETWORK: ${ALGORAND_NETWORK:-testnet}
+      PAY_TO: ${PAY_TO}
+      ANCHOR_ENABLED: ${ANCHOR_ENABLED:-false}
+      ANCHOR_MNEMONIC: ${ANCHOR_MNEMONIC:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8402}
+    ports:
+      - "8402:8402"
+
+volumes:
+  db-data:

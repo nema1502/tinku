@@ -1,0 +1,35 @@
+{
+  "name": "tinku",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.0",
+  "description": "Verifiable fair draws and sealed decisions, paid per request with x402 on Algorand",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.0",
+    "@x402/avm": "^2.21.0",
+    "@x402/core": "^2.21.0",
+    "@x402/extensions": "^2.21.0",
+    "@x402/hono": "^2.21.0",
+    "algosdk": "^3.6.0",
+    "hono": "^4.13.1",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/pg": "^8.21.0",
+    "tsx": "^4.23.11",
+    "typescript": "^7.0.2"
+  }
+}
