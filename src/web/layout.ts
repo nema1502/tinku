@@ -170,31 +170,65 @@ th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: u
 @media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: 2px 0; } .kv dd { margin-bottom: 10px; } }
 `;
 
+/**
+ * Styles that only the projected event screen needs.
+ *
+ * It is pinned to the dark palette and sized in viewport units: this is meant
+ * to be thrown on a wall in front of a room, where the browser's theme
+ * preference is irrelevant and legibility from the back row is not.
+ */
+const EVENT_CSS = `
+html, body { height: 100%; }
+body.event {
+  --bg: #100c0a; --surface: #1b1512; --border: #3a2f27;
+  --text: #f7f1ea; --muted: #a08d7e; --accent: #ff7a3d; --gold: #f0bb52;
+  background: radial-gradient(120% 90% at 50% 0%, #241a15 0%, var(--bg) 62%);
+  color: var(--text);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.ev-head { padding: 3.4vh 4vw 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.ev-title { font-size: clamp(24px, 3.4vw, 52px); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; margin: 0; }
+.ev-sub { color: var(--muted); font-size: clamp(13px, 1.2vw, 19px); margin-top: .5vh; }
+.ev-stage { flex: 1; display: grid; place-items: center; padding: 2vh 4vw; min-height: 0; }
+.ev-foot { padding: 0 4vw 3.4vh; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
+.ev-qr { display: flex; align-items: center; gap: 16px; }
+.ev-qr svg { width: clamp(84px, 9vw, 132px); height: auto; border-radius: 8px; background: #fff; padding: 7px; display: block; }
+.ev-qr-text { font-size: clamp(12px, 1.15vw, 17px); line-height: 1.45; }
+.ev-qr-text b { display: block; font-size: clamp(14px, 1.35vw, 20px); }
+.ev-qr-text span { color: var(--muted); }
+.ev-meta { text-align: right; font-family: var(--mono); font-size: clamp(10px, .85vw, 13px); color: var(--muted); line-height: 1.7; }
+.ev-status { font-size: clamp(15px, 1.6vw, 26px); color: var(--gold); font-weight: 600; }
+.ev-winner {
+  display: flex; align-items: center; gap: clamp(14px, 1.8vw, 28px);
+  font-size: clamp(28px, 5.6vw, 86px); font-weight: 750; letter-spacing: -.035em; line-height: 1.12;
+  animation: rise .55s cubic-bezier(.2,.9,.25,1) backwards;
+}
+.ev-winner i { font-style: normal; color: var(--accent); font-size: .5em; font-variant-numeric: tabular-nums; opacity: .85; }
+@keyframes rise { from { opacity: 0; transform: translateY(26px) } to { opacity: 1; transform: none } }
+.ev-reel { font-size: clamp(30px, 6vw, 92px); font-weight: 750; letter-spacing: -.035em; opacity: .55; }
+@media (prefers-reduced-motion: reduce) { .ev-winner { animation: none } #wheel { transition: none !important } }
+`;
+
 export interface PageOptions {
   title: string;
   body: string;
   script?: string;
+  /** Drops the header, footer and centred column — for the projected screen. */
+  bare?: boolean;
+  /** Class applied to `<body>`. */
+  bodyClass?: string;
 }
 
 /**
- * Wraps page content in the full document shell.
+ * Wraps page content in the document shell.
  *
- * @param options - Title, body markup and an optional inline script.
+ * @param options - Title, body markup, optional inline script and chrome flags.
  * @returns A complete HTML document.
  */
-export function page({ title, body, script }: PageOptions): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title>
-<meta name="description" content="Provably fair draws on Algorand. Anyone can verify the result without trusting the organizer.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23e8703a'/></svg>">
-<style>${CSS}</style>
-</head>
-<body>
-<div class="wrap">
+export function page({ title, body, script, bare, bodyClass }: PageOptions): string {
+  const content = bare
+    ? body
+    : `<div class="wrap">
 <header class="top">
   <div class="mark"></div>
   <div class="brand">Tinku<span>provably fair draws</span></div>
@@ -204,7 +238,20 @@ ${body}
   Randomness comes from the Algorand randomness beacon. Every result is anchored on chain.
   &nbsp;·&nbsp; <a href="https://github.com/nema1502/tinku">Source</a>
 </footer>
-</div>
+</div>`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<meta name="description" content="Provably fair draws on Algorand. Anyone can verify the result without trusting the organizer.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23e8703a'/></svg>">
+<style>${CSS}${bare ? EVENT_CSS : ""}</style>
+</head>
+<body${bodyClass ? ` class="${bodyClass}"` : ""}>
+${content}
 ${script ? `<script>${script}</script>` : ""}
 </body>
 </html>`;

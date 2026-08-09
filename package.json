@@ -24,11 +24,13 @@
     "@x402/hono": "^2.21.0",
     "algosdk": "^3.6.0",
     "hono": "^4.13.1",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
     "@types/pg": "^8.21.0",
+    "@types/qrcode": "^1.5.6",
     "tsx": "^4.23.11",
     "typescript": "^7.0.2"
   }

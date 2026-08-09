@@ -23,7 +23,8 @@ import { verifyDraw, winnerEntries, type DrawRecord } from "../domain/draw.js";
 import { log } from "../logger.js";
 import { DrawService, ValidationError, parseCreateDrawInput } from "../service/draws.js";
 import type { DrawRepository } from "../store/index.js";
-import { drawPage, landingPage, verifyPage } from "../web/pages.js";
+import { toString } from "qrcode";
+import { drawPage, eventPage, landingPage, verifyPage } from "../web/pages.js";
 import { createPaymentMiddleware } from "./payment.js";
 
 /**
@@ -214,6 +215,21 @@ export function createApp(repository: DrawRepository) {
     const record = await service.load(c.req.param("id"));
     if (!record) return c.notFound();
     return c.html(verifyPage(record, verifyDraw(record)));
+  });
+
+  app.get("/e/:id", async c => {
+    const record = await service.load(c.req.param("id"));
+    if (!record) return c.notFound();
+
+    // Rendered server-side so the projected screen pulls nothing from a CDN —
+    // conference wifi is exactly where that fails.
+    const qr = await toString(`${PUBLIC_BASE_URL}/v/${record.id}`, {
+      type: "svg",
+      margin: 0,
+      errorCorrectionLevel: "M",
+      color: { dark: "#100c0a", light: "#ffffff" },
+    });
+    return c.html(eventPage(record, qr));
   });
 
   app.get("/", c => {

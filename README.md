@@ -88,22 +88,40 @@ makes the fairness claims testable in isolation.
 
 ## Endpoints
 
+### For people
+
+| Page | What it is |
+| --- | --- |
+| `/` | Run a draw — paste the list, get a price, seal it |
+| `/d/:id` | The draw resolving live: a wheel for short lists, a name reel for long ones |
+| `/e/:id` | **Event screen** — full bleed, built to project. `F` fullscreen, `R` replays |
+| `/v/:id` | Public verification, free forever, recomputed on every view |
+
+The event screen carries a QR that points at `/v/:id`, so a room can recheck the draw on
+their own phones while the winners are still on the wall. The QR is rendered server-side
+as inline SVG — conference wifi is exactly where a CDN dependency fails.
+
+### For machines
+
 | Endpoint | Price | What it does |
 | --- | --- | --- |
-| `POST /v1/draws` | $0.01 | Seals an entry list and schedules the deciding round |
+| `POST /v1/draws?entries=N` | $0.01 + $0.002/entry | Seals an entry list and schedules the deciding round |
 | `GET /v1/draws/:id` | free | The result, once that round exists |
 | `GET /v1/draws/:id/verify` | free | Full record plus an independent recomputation |
-| `GET /health` | free | Liveness |
-| `GET /ready` | free | Readiness — checks storage and algod |
+| `GET /health` · `GET /ready` | free | Liveness and readiness |
 
 ```bash
-curl -X POST https://your-domain/v1/draws \
+curl -X POST 'https://your-domain/v1/draws?entries=3' \
   -H 'content-type: application/json' \
   -d '{"participants":["ana","beto","carla"],"winners":1,"label":"GDG workshop seat"}'
 ```
 
 Without payment this returns `402 Payment Required` with the x402 requirements in the
-`payment-required` header.
+`payment-required` header. `GET /` content-negotiates: browsers get the product, agents get
+the JSON description.
+
+The entry count is declared in the query string because the price is quoted before the body
+is read. The handler refuses to seal more entries than were paid for; fewer is fine.
 
 ---
 

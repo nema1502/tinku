@@ -30,6 +30,61 @@ function txUrl(txId: string): string {
   return `${EXPLORER}/transaction/${txId}`;
 }
 
+/** Above this many entries a wheel stops being readable, so we scroll names instead. */
+const WHEEL_LIMIT = 16;
+
+/**
+ * Client-side spinner, shared by the draw page and the projected event screen.
+ *
+ * A wheel for short lists because it is legible and fun; a name reel for long
+ * ones because a 400-slice wheel is neither. Both land on the winner the
+ * derivation already chose — the animation reports the result, it never picks it.
+ */
+const SPINNER_JS = `
+function wheelSvg(NAMES, size, highlight) {
+  const n = NAMES.length, r = 120, cx = 140, cy = 140;
+  let out = '<svg viewBox="0 0 280 280" width="' + size + '" height="' + size + '" id="wheel" style="max-width:100%;transition:transform 4.2s cubic-bezier(.15,.9,.2,1)">';
+  for (let i = 0; i < n; i++) {
+    const a0 = (i / n) * 2 * Math.PI - Math.PI / 2, a1 = ((i + 1) / n) * 2 * Math.PI - Math.PI / 2;
+    const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+    const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+    const hue = 18 + (i * 320 / n) % 320;
+    const on = highlight != null && highlight.includes(i);
+    out += '<path d="M' + cx + ' ' + cy + ' L' + x0 + ' ' + y0 + ' A' + r + ' ' + r + ' 0 0 1 ' + x1 + ' ' + y1 + ' Z" fill="hsl(' + hue + ' 64% ' + (on ? 60 : 46) + '%)" opacity="' + (highlight && !on ? .22 : 1) + '" stroke="rgba(0,0,0,.2)" stroke-width="0.7"/>';
+    const am = (a0 + a1) / 2, tx = cx + r * .66 * Math.cos(am), ty = cy + r * .66 * Math.sin(am);
+    const label = NAMES[i].length > 12 ? NAMES[i].slice(0, 11) + '…' : NAMES[i];
+    out += '<text x="' + tx + '" y="' + ty + '" font-size="10" font-weight="700" fill="#fff" text-anchor="middle" dominant-baseline="middle" transform="rotate(' + (am * 180 / Math.PI) + ' ' + tx + ' ' + ty + ')">' + esc(label) + '</text>';
+  }
+  out += '<circle cx="140" cy="140" r="19" fill="rgba(0,0,0,.55)"/></svg>';
+  return '<div style="position:relative;display:inline-block;line-height:0">' + out +
+    '<div style="position:absolute;top:-2%;left:50%;transform:translateX(-50%);font-size:' + Math.round(size * .09) + 'px;line-height:1;color:var(--accent)">&#9660;</div></div>';
+}
+
+function esc(s) { return String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+
+/**
+ * Runs the reveal animation, then hands control back.
+ */
+function spin(NAMES, indexes, opts) {
+  const { stage, size, useWheel, onDone } = opts;
+  if (!useWheel) {
+    stage.innerHTML = '<div class="' + (opts.reelClass || '') + '"></div>';
+    const el = stage.firstChild;
+    let t = 0;
+    const iv = setInterval(() => {
+      el.textContent = NAMES[Math.floor(Math.random() * NAMES.length)];
+      if (++t > 30) { clearInterval(iv); onDone(); }
+    }, 68);
+    return;
+  }
+  stage.innerHTML = wheelSvg(NAMES, size, null);
+  const svg = document.getElementById('wheel');
+  const target = 360 * 5 + (360 - (indexes[0] + 0.5) * (360 / NAMES.length));
+  requestAnimationFrame(() => { svg.style.transform = 'rotate(' + target + 'deg)'; });
+  setTimeout(onDone, 4400);
+}
+`;
+
 /* ══════════════════════════════ landing ══════════════════════════════ */
 
 /**
@@ -164,13 +219,17 @@ $('run').addEventListener('click', async () => {
  */
 export function drawPage(record: DrawRecord, currentRound: number): string {
   const names = record.participants;
-  const wheel = names.length <= 16;
+  const wheel = names.length <= WHEEL_LIMIT;
   const winners = winnerEntries(record);
-  const remaining = Math.max(0, record.targetRound + 3 - currentRound);
+  const roundsAway = Math.max(0, record.targetRound + 3 - currentRound);
 
   const body = `
 <h1>${esc(record.label || "Draw")}</h1>
-<p class="lede">${names.length} entries · ${record.winners} winner${record.winners > 1 ? "s" : ""}</p>
+<p class="lede">
+  ${names.length} entries · ${record.winners} winner${record.winners > 1 ? "s" : ""}${
+    winners ? "" : ` · ${roundsAway} rounds from being decided`
+  }
+</p>
 
 <div class="card" style="text-align:center">
   <div id="stage" style="min-height:280px;display:grid;place-items:center">
@@ -192,91 +251,160 @@ export function drawPage(record: DrawRecord, currentRound: number): string {
   </dl>
   <div class="row">
     <a href="/v/${esc(record.id)}"><button class="ghost">Verify this draw</button></a>
+    <a href="/e/${esc(record.id)}"><button class="ghost">Open event screen</button></a>
   </div>
 </div>
-<p class="muted">Share the verification link with participants — it needs no account and never expires.</p>
+<p class="muted">
+  Share the verification link with participants — it needs no account and never expires.
+  The event screen is built to be projected: full bleed, with a QR the room can scan.
+</p>
 `;
 
-  const script = `
+  const script = `${SPINNER_JS}
 const NAMES = ${JSON.stringify(names)};
 const WHEEL = ${wheel};
+const ID = ${JSON.stringify(record.id)};
 let winners = ${JSON.stringify(winners)};
 let indexes = ${JSON.stringify(record.winnerIndexes)};
-let remaining = ${remaining};
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
 
-function wheelSvg(highlight) {
-  const n = NAMES.length, r = 120, cx = 140, cy = 140;
-  let out = '<svg viewBox="0 0 280 280" width="260" height="260" id="wheel" style="transition:transform 4.2s cubic-bezier(.15,.9,.2,1)">';
-  for (let i = 0; i < n; i++) {
-    const a0 = (i / n) * 2 * Math.PI - Math.PI / 2, a1 = ((i + 1) / n) * 2 * Math.PI - Math.PI / 2;
-    const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
-    const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
-    const hue = 18 + (i * 320 / n) % 320;
-    const on = highlight != null && highlight.includes(i);
-    out += '<path d="M' + cx + ' ' + cy + ' L' + x0 + ' ' + y0 + ' A' + r + ' ' + r + ' 0 ' + (2*Math.PI/n > Math.PI ? 1 : 0) + ' 1 ' + x1 + ' ' + y1 + ' Z" fill="hsl(' + hue + ' 62% ' + (on ? 58 : 46) + '%)" opacity="' + (highlight && !on ? .25 : 1) + '" stroke="rgba(0,0,0,.18)"/>';
-    const am = (a0 + a1) / 2, tx = cx + r * .66 * Math.cos(am), ty = cy + r * .66 * Math.sin(am);
-    const label = NAMES[i].length > 12 ? NAMES[i].slice(0, 11) + '…' : NAMES[i];
-    out += '<text x="' + tx + '" y="' + ty + '" font-size="10" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="middle" transform="rotate(' + (am * 180 / Math.PI) + ' ' + tx + ' ' + ty + ')">' + label.replace(/[<>&]/g, '') + '</text>';
-  }
-  out += '<circle cx="140" cy="140" r="20" fill="var(--surface)" stroke="var(--border)"/></svg>';
-  return '<div style="position:relative;display:inline-block">' + out +
-    '<div style="position:absolute;top:-4px;left:50%;transform:translateX(-50%);font-size:22px;line-height:1">▼</div></div>';
-}
-
-function reel(name) {
-  return '<div style="font-size:30px;font-weight:700;letter-spacing:-.02em;min-height:44px">' +
-    (name || '').replace(/[<>&]/g, '') + '</div>';
-}
-
 function showWinners() {
-  const list = winners.map((w, i) =>
-    '<div class="winner"><b>' + (i + 1) + '</b>' + w.replace(/[<>&]/g, '') + '</div>').join('');
-  stage.innerHTML = (WHEEL ? wheelSvg(indexes) : '') +
+  const list = winners.map((w, i) => '<div class="winner"><b>' + (i + 1) + '</b>' + esc(w) + '</div>').join('');
+  stage.innerHTML = (WHEEL ? wheelSvg(NAMES, 260, indexes) : '') +
     '<div class="winners" style="justify-content:center;margin-top:18px">' + list + '</div>';
   status.innerHTML = '<span class="pill ok">Revealed and verifiable</span>';
 }
 
-async function spinThenShow() {
-  if (!WHEEL) {
-    stage.innerHTML = reel('');
-    const el = stage.firstChild;
-    let t = 0;
-    const iv = setInterval(() => {
-      el.textContent = NAMES[Math.floor(Math.random() * NAMES.length)];
-      if (++t > 28) { clearInterval(iv); showWinners(); }
-    }, 70);
-    return;
-  }
-  stage.innerHTML = wheelSvg(null);
-  const svg = document.getElementById('wheel');
-  const n = NAMES.length;
-  const target = 360 * 5 + (360 - (indexes[0] + 0.5) * (360 / n));
-  requestAnimationFrame(() => { svg.style.transform = 'rotate(' + target + 'deg)'; });
-  setTimeout(showWinners, 4400);
+function reveal() {
+  spin(NAMES, indexes, {
+    stage, size: 260, useWheel: WHEEL, onDone: showWinners,
+    reelClass: 'ev-reel',
+  });
 }
 
-async function poll() {
-  status.innerHTML = '<span class="pill">Sealed — waiting for round ' + ${record.targetRound} + '</span>';
-  stage.innerHTML = WHEEL ? wheelSvg(null) : reel('…');
+function poll() {
+  status.innerHTML = '<span class="pill">Sealed — waiting for round ${record.targetRound}</span>';
+  stage.innerHTML = WHEEL ? wheelSvg(NAMES, 260, null) : '<div class="ev-reel">…</div>';
   const iv = setInterval(async () => {
-    const r = await fetch('/v1/draws/' + ${JSON.stringify(record.id)}).then(r => r.json());
+    const r = await fetch('/v1/draws/' + ID).then(r => r.json());
     if (r.status === 'revealed') {
       clearInterval(iv);
       winners = r.winners; indexes = r.winnerIndexes;
-      spinThenShow();
+      reveal();
     } else if (typeof r.roundsRemaining === 'number') {
       status.innerHTML = '<span class="pill">' + (r.roundsRemaining || 1) + ' rounds to go</span>';
     }
   }, 3000);
 }
 
-if (winners) spinThenShow(); else poll();
+if (winners) reveal(); else poll();
 `;
 
   return page({ title: `${record.label || "Draw"} — Tinku`, body, script });
+}
+
+/* ══════════════════════════ event screen ══════════════════════════ */
+
+/**
+ * Renders the projected screen for a live event.
+ *
+ * Built for a wall in front of a room: dark, oversized, no chrome, and a QR in
+ * the corner so the audience can verify the result on their own phones while
+ * it is still on screen. That moment — a room full of people checking the draw
+ * themselves — is the entire product in one gesture.
+ *
+ * @param record - The draw record.
+ * @param qrSvg - Pre-rendered QR code pointing at the verification page.
+ * @returns The HTML document.
+ */
+export function eventPage(record: DrawRecord, qrSvg: string): string {
+  const names = record.participants;
+  const wheel = names.length <= WHEEL_LIMIT;
+  const winners = winnerEntries(record);
+
+  const body = `
+<div class="ev-head">
+  <div>
+    <h1 class="ev-title">${esc(record.label || "Draw")}</h1>
+    <div class="ev-sub">${names.length} entries · ${record.winners} winner${record.winners > 1 ? "s" : ""}</div>
+  </div>
+  <div class="ev-status" id="status"></div>
+</div>
+
+<div class="ev-stage" id="stage"></div>
+
+<div class="ev-foot">
+  <div class="ev-qr">
+    ${qrSvg}
+    <div class="ev-qr-text">
+      <b>Verify it yourself</b>
+      <span>Scan to recheck this draw<br>from your own phone.</span>
+    </div>
+  </div>
+  <div class="ev-meta">
+    commit ${esc(record.commit.slice(0, 16))}…<br>
+    beacon round ${record.targetRound}<br>
+    Algorand ${NETWORK_NAME}
+  </div>
+</div>
+`;
+
+  const script = `${SPINNER_JS}
+const NAMES = ${JSON.stringify(names)};
+const WHEEL = ${wheel};
+const ID = ${JSON.stringify(record.id)};
+let winners = ${JSON.stringify(winners)};
+let indexes = ${JSON.stringify(record.winnerIndexes)};
+
+const stage = document.getElementById('stage');
+const status = document.getElementById('status');
+const size = () => Math.min(window.innerHeight * 0.52, window.innerWidth * 0.42);
+
+function showWinners() {
+  stage.innerHTML = '<div>' + winners.map((w, i) =>
+    '<div class="ev-winner" style="animation-delay:' + (i * .28) + 's">' +
+    (winners.length > 1 ? '<i>' + (i + 1) + '</i>' : '') + esc(w) + '</div>').join('') + '</div>';
+  status.textContent = 'Verified';
+}
+
+function reveal() {
+  spin(NAMES, indexes, { stage, size: size(), useWheel: WHEEL, onDone: showWinners, reelClass: 'ev-reel' });
+}
+
+function poll() {
+  status.textContent = 'Sealed';
+  stage.innerHTML = WHEEL ? wheelSvg(NAMES, size(), null) : '<div class="ev-reel">…</div>';
+  const iv = setInterval(async () => {
+    const r = await fetch('/v1/draws/' + ID).then(r => r.json());
+    if (r.status === 'revealed') {
+      clearInterval(iv);
+      winners = r.winners; indexes = r.winnerIndexes;
+      reveal();
+    } else if (typeof r.roundsRemaining === 'number') {
+      status.textContent = (r.roundsRemaining || 1) + ' rounds to go';
+    }
+  }, 3000);
+}
+
+// F toggles fullscreen, R replays the animation for a second take.
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  if (k === 'r' && winners) reveal();
+});
+
+if (winners) reveal(); else poll();
+`;
+
+  return page({
+    title: `${record.label || "Draw"} — live`,
+    body,
+    script,
+    bare: true,
+    bodyClass: "event",
+  });
 }
 
 /* ══════════════════════════ verification ══════════════════════════ */
