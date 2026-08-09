@@ -1,0 +1,3 @@
+# Verification pages are meant to be found and read — that is the point of them.
+User-agent: *
+Allow: /
