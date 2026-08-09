@@ -17,6 +17,7 @@ import {
   FACILITATOR_URL,
   NETWORK,
   PAY_TO,
+  PUBLIC_BASE_URL,
   USDC_ASA_ID,
   priceForEntries,
 } from "../config.js";
@@ -62,6 +63,15 @@ function accepts(price: PaymentOption["price"]): PaymentOption {
 export const routes: RoutesConfig = {
   "POST /v1/draws": {
     accepts: accepts(drawPrice),
+    /**
+     * Declared rather than derived.
+     *
+     * Behind a TLS-terminating proxy the Node request arrives as plain http, so
+     * the middleware would catalogue this endpoint in the Bazaar as
+     * `http://…` — which is both wrong and a competition requirement violated,
+     * since entries must be reachable over HTTPS.
+     */
+    resource: `${PUBLIC_BASE_URL}/v1/draws`,
     description:
       "Run a provably fair draw: seals the entry list against a future Algorand randomness beacon round, returns the winners, and writes a permanent on-chain record anyone can recheck.",
     serviceName: "Tinku",
@@ -93,7 +103,8 @@ export const routes: RoutesConfig = {
           status: "sealed",
           commit: "2e2a288b5c7ce1e7098996c1cc6e38d655f0d6b996464f374028a364c7fae2be",
           targetRound: 66126840,
-          verifyUrl: "https://tinku.app/v1/draws/6f2b1c4e/verify",
+          resultUrl: `${PUBLIC_BASE_URL}/v1/draws/6f2b1c4e-6c1d-4f0a-9a4b-1d2e3f4a5b6c`,
+          verifyUrl: `${PUBLIC_BASE_URL}/v1/draws/6f2b1c4e-6c1d-4f0a-9a4b-1d2e3f4a5b6c/verify`,
         },
       },
     }),
