@@ -8,6 +8,24 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+
+    # A real Postgres, so the storage layer is tested against the thing it will
+    # actually run on rather than a mock that agrees with us.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tinku
+          POSTGRES_PASSWORD: tinku
+          POSTGRES_DB: tinku
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tinku"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -26,9 +44,13 @@ jobs:
         run: pnpm typecheck
 
       # The fairness claims are the product, so these run on every push.
-      # Includes the uniformity assertion over 20k derivations.
+      # Includes the uniformity assertion over 20k derivations, and the storage
+      # round-trip against the service container above.
       - name: Tests
         run: pnpm test
+        env:
+          DATABASE_URL: postgres://tinku:tinku@localhost:5432/tinku
+          DATABASE_SSL: "false"
 
       - name: Build
         run: pnpm build
