@@ -7,20 +7,47 @@
  * leaderboard instead of several competing rows.
  */
 import { paymentMiddlewareFromConfig } from "@x402/hono";
-import { HTTPFacilitatorClient, type RoutesConfig } from "@x402/core/server";
+import { HTTPFacilitatorClient, type RouteConfig, type RoutesConfig } from "@x402/core/server";
 import { ExactAvmScheme } from "@x402/avm/exact/server";
 import { declareDiscoveryExtension, withBazaar } from "@x402/extensions/bazaar";
 import type { MiddlewareHandler } from "hono";
 
-import { CHALLENGE_TAG, FACILITATOR_URL, NETWORK, PAY_TO, PRICES, USDC_ASA_ID } from "../config.js";
+import {
+  CHALLENGE_TAG,
+  FACILITATOR_URL,
+  NETWORK,
+  PAY_TO,
+  USDC_ASA_ID,
+  priceForEntries,
+} from "../config.js";
+
+/** One payment option, as the route config expects it. */
+type PaymentOption = Exclude<RouteConfig["accepts"], readonly unknown[]>;
+
+/**
+ * Prices a draw from the `entries` query parameter.
+ *
+ * The count is declared up front because the price is quoted before the body is
+ * read: the client states how many entries it is paying for, and the handler
+ * refuses to seal more than that. Paying for more than you use is allowed;
+ * paying for fewer is not.
+ *
+ * @param context - The x402 request context.
+ * @returns The price string for this request.
+ */
+const drawPrice: PaymentOption["price"] = context => {
+  const raw = context.adapter.getQueryParam?.("entries");
+  const declared = Number(Array.isArray(raw) ? raw[0] : raw);
+  return priceForEntries(Number.isFinite(declared) && declared > 0 ? Math.floor(declared) : 1);
+};
 
 /**
  * Payment terms shared by every paid route.
  *
- * @param price - Price string, e.g. "$0.01".
+ * @param price - A fixed price string, or a function of the request.
  * @returns A payment option for the Algorand exact scheme.
  */
-function accepts(price: string) {
+function accepts(price: PaymentOption["price"]): PaymentOption {
   return {
     scheme: "exact",
     network: NETWORK,
@@ -29,12 +56,12 @@ function accepts(price: string) {
     // The challenge tag lives in `extra` so the facilitator attributes our
     // settlements to the competition.
     extra: { asset: USDC_ASA_ID, tag: CHALLENGE_TAG },
-  } as const;
+  };
 }
 
 export const routes: RoutesConfig = {
   "POST /v1/draws": {
-    accepts: accepts(PRICES.draw),
+    accepts: accepts(drawPrice),
     description:
       "Run a provably fair draw: seals the entry list against a future Algorand randomness beacon round, returns the winners, and writes a permanent on-chain record anyone can recheck.",
     serviceName: "Tinku",

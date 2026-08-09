@@ -206,10 +206,37 @@ export const BEACON_SETTLE_ROUNDS = envInt("BEACON_SETTLE_ROUNDS", 3);
 /** Upper bound on entries per draw, to keep request handling predictable. */
 export const MAX_PARTICIPANTS = envInt("MAX_PARTICIPANTS", 10_000);
 
-export const PRICES = {
-  draw: env("PRICE_DRAW", "$0.01"),
-  seal: env("PRICE_SEAL", "$0.001"),
-} as const;
+/**
+ * Pricing.
+ *
+ * A draw costs a small base plus a per-entry amount, because sealing 500
+ * entries genuinely is more work than sealing five — and because a flat fee
+ * would price a community raffle the same as a national promotion.
+ *
+ * For reference, the incumbents charge a monthly subscription: Gleam from
+ * $19/mo, Easypromos from $49/mo, SweepWidget from $25/mo. A 300-entry draw
+ * here costs about $0.61, with nothing to cancel afterwards.
+ */
+export const PRICE_DRAW_BASE = Number(env("PRICE_DRAW_BASE", "0.01"));
+export const PRICE_PER_ENTRY = Number(env("PRICE_PER_ENTRY", "0.002"));
+if (!Number.isFinite(PRICE_DRAW_BASE) || PRICE_DRAW_BASE < 0) {
+  problems.push("PRICE_DRAW_BASE must be a non-negative number");
+}
+if (!Number.isFinite(PRICE_PER_ENTRY) || PRICE_PER_ENTRY < 0) {
+  problems.push("PRICE_PER_ENTRY must be a non-negative number");
+}
+
+/**
+ * Computes what a draw of a given size costs.
+ *
+ * @param entries - Number of entries the caller declared.
+ * @returns A price string such as "$0.61".
+ */
+export function priceForEntries(entries: number): string {
+  const clamped = Math.min(Math.max(entries, 1), MAX_PARTICIPANTS);
+  const total = PRICE_DRAW_BASE + PRICE_PER_ENTRY * clamped;
+  return `$${total.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
 
 if (problems.length > 0) {
   throw new ConfigError(

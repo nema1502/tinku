@@ -13,14 +13,17 @@ import {
   CHALLENGE_TAG,
   NETWORK,
   NETWORK_NAME,
-  PRICES,
+  PRICE_DRAW_BASE,
+  PRICE_PER_ENTRY,
   PUBLIC_BASE_URL,
   USDC_ASA_ID,
+  priceForEntries,
 } from "../config.js";
 import { verifyDraw, winnerEntries, type DrawRecord } from "../domain/draw.js";
 import { log } from "../logger.js";
 import { DrawService, ValidationError, parseCreateDrawInput } from "../service/draws.js";
 import type { DrawRepository } from "../store/index.js";
+import { drawPage, landingPage, verifyPage } from "../web/pages.js";
 import { createPaymentMiddleware } from "./payment.js";
 
 /**
@@ -96,7 +99,19 @@ export function createApp(repository: DrawRepository) {
       throw new ValidationError("body must be valid JSON");
     }
 
-    const record = await service.create(parseCreateDrawInput(body));
+    const input = parseCreateDrawInput(body);
+
+    // The price was quoted from ?entries=N before this body existed, so the
+    // list cannot be larger than what was paid for. Smaller is fine.
+    const declared = Number(c.req.query("entries"));
+    if (Number.isFinite(declared) && declared > 0 && input.participants.length > declared) {
+      throw new ValidationError(
+        `paid for ${Math.floor(declared)} entries but sent ${input.participants.length} — ` +
+          `re-request with ?entries=${input.participants.length}`,
+      );
+    }
+
+    const record = await service.create(input);
     return c.json(
       {
         ...present(record),
@@ -179,8 +194,34 @@ export function createApp(repository: DrawRepository) {
     return c.json({ ready, storage: storeOk, algod: round !== null, round }, ready ? 200 : 503);
   });
 
-  app.get("/", c =>
-    c.json({
+  /* ---------------- web ---------------- */
+
+  /**
+   * True when the caller is a browser rather than an agent or a script.
+   *
+   * @param accept - The request's Accept header.
+   * @returns Whether to answer with HTML.
+   */
+  const wantsHtml = (accept: string | undefined) => (accept ?? "").includes("text/html");
+
+  app.get("/d/:id", async c => {
+    const record = await service.load(c.req.param("id"));
+    if (!record) return c.notFound();
+    return c.html(drawPage(record, await getCurrentRound()));
+  });
+
+  app.get("/v/:id", async c => {
+    const record = await service.load(c.req.param("id"));
+    if (!record) return c.notFound();
+    return c.html(verifyPage(record, verifyDraw(record)));
+  });
+
+  app.get("/", c => {
+    // Browsers get the product; agents and scripts get the machine-readable
+    // description they came for.
+    if (wantsHtml(c.req.header("accept"))) return c.html(landingPage());
+
+    return c.json({
       name: "Tinku",
       description:
         "Provably fair draws on Algorand. Running a draw is paid per request with x402; reading and verifying a result is free.",
@@ -188,13 +229,22 @@ export function createApp(repository: DrawRepository) {
       randomness: { source: "Algorand randomness beacon", appId: BEACON_APP_ID },
       onChainAnchoring: ANCHOR_ENABLED,
       challengeTag: CHALLENGE_TAG,
+      pricing: {
+        formula: `$${PRICE_DRAW_BASE} + $${PRICE_PER_ENTRY} per entry`,
+        note: "Declare the entry count as ?entries=N — the price is quoted before the body is read.",
+        examples: {
+          "10 entries": priceForEntries(10),
+          "100 entries": priceForEntries(100),
+          "300 entries": priceForEntries(300),
+        },
+      },
       endpoints: {
-        "POST /v1/draws": `${PRICES.draw} — seal and run a verifiable draw`,
+        "POST /v1/draws?entries=N": "paid — seal and run a verifiable draw",
         "GET /v1/draws/:id": "free — the result once the target round exists",
         "GET /v1/draws/:id/verify": "free — full record and independent recomputation",
       },
-    }),
-  );
+    });
+  });
 
   return app;
 }
